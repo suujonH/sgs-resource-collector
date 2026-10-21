@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>三国杀资源收集器</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="mark">杀</span><span>资源收集器</span></div>
+  <nav class="tabs" id="tabs" role="tablist">
+    <button type="button" data-tab="progress" class="active">进度</button>
+    <button type="button" data-tab="resources">资源</button>
+    <button type="button" data-tab="runs">收集记录</button>
+    <button type="button" data-tab="rules">Header 规则</button>
+  </nav>
+  <div class="conn" id="conn" title="与后端的连接状态">连接中</div>
+</header>
+<main>
+  <section id="tab-progress" class="panel"></section>
+  <section id="tab-resources" class="panel" hidden></section>
+  <section id="tab-runs" class="panel" hidden></section>
+  <section id="tab-rules" class="panel" hidden></section>
+</main>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
