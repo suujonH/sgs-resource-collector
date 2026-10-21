@@ -62,15 +62,15 @@ public sealed class CatalogRestore
                 afterVersion = page.Next.Version;
             }
 
-            await _runs.FinishAsync(runId, StatusCompleted, $"{{\"restored\":{imported}}}", null, now);
+            await _runs.FinishAsync(runId, StatusCompleted, $"{{\"restored\":{imported}}}", null, Clock.NowIso());
             await _runs.SetSyncResultAsync(runId, SyncSkipped, null);
             return imported;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             if (runId != 0)
             {
-                await _runs.FinishAsync(runId, StatusCancelled, $"{{\"restored\":{imported}}}", null, now);
+                await _runs.FinishAsync(runId, StatusCancelled, $"{{\"restored\":{imported}}}", null, Clock.NowIso());
             }
 
             throw;
@@ -79,7 +79,7 @@ public sealed class CatalogRestore
         {
             if (runId != 0)
             {
-                await _runs.FinishAsync(runId, StatusFailed, $"{{\"restored\":{imported}}}", ex.Message, now);
+                await _runs.FinishAsync(runId, StatusFailed, $"{{\"restored\":{imported}}}", ex.Message, Clock.NowIso());
             }
 
             throw;

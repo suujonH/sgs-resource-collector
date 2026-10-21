@@ -78,6 +78,29 @@ public sealed class CatalogRestoreTests : IAsyncLifetime
             () => new CatalogRestore(_sync, _runs, TwoPages()).RestoreAsync(null, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Restore_HttpTimeoutWithoutCancellation_IsRecordedAsFailed()
+    {
+        var restore = new CatalogRestore(_sync, _runs, new TimeoutClient());
+
+        await Assert.ThrowsAsync<TaskCanceledException>(() => restore.RestoreAsync(null, CancellationToken.None));
+
+        await using var connection = await _db.OpenAsync();
+        Assert.Equal("failed", await connection.ExecuteScalarAsync<string>("SELECT status FROM runs"));
+        Assert.NotNull(await connection.ExecuteScalarAsync<string>("SELECT error FROM runs"));
+    }
+
+    private sealed class TimeoutClient : ICatalogClient
+    {
+        public Task<CatalogStats> GetStatsAsync(CancellationToken ct) => Task.FromResult(new CatalogStats(0, 0));
+
+        public Task<CatalogExportPage> ExportAsync(string afterKey, long afterVersion, int limit, CancellationToken ct)
+            => throw new TaskCanceledException("timeout");
+
+        public Task<CatalogSyncResult> SyncAsync(IReadOnlyList<CatalogVersionDto> rows, CancellationToken ct)
+            => throw new NotSupportedException();
+    }
+
     private async Task AssertStateAsync()
     {
         await using var connection = await _db.OpenAsync();
