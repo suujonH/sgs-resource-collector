@@ -597,6 +597,57 @@ public sealed class ResourceFetcherTests
         Assert.False(seen.Headers.ContainsKey("Referer"));
     }
 
+    // ---------- 重定向 ----------
+
+    private static HttpResponseMessage Redirect(string location, HttpStatusCode status = HttpStatusCode.Found)
+    {
+        var response = Response(status);
+        response.Headers.TryAddWithoutValidation("Location", location);
+        return response;
+    }
+
+    [Fact]
+    public async Task FetchAsync_SameHostRedirect_IsFollowedWithTheSameHeaders()
+    {
+        var rules = HeaderRuleSet.Build([Rule(1, "*", HeadersJson(("X-Rule", "yes")))]);
+        var handler = StubHandler.Respond(call => call == 0
+            ? Redirect("/220/h5_2/res/config/b.json#frag")
+            : Response(HttpStatusCode.OK, body: "ok"u8.ToArray()));
+
+        var result = await Fetcher(handler).FetchAsync(Request(ifNoneMatch: ETagV1, rules: rules), CancellationToken.None);
+
+        Assert.Equal(FetchKind.Ok, result.Kind);
+        Assert.Equal(new Uri("https://web.sanguosha.com/220/h5_2/res/config/b.json"), result.FinalUri);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal("yes", handler.Requests[1].Headers["X-Rule"]);
+        Assert.Equal(ETagV1, handler.Requests[1].Headers["If-None-Match"]);
+    }
+
+    [Fact]
+    public async Task FetchAsync_CrossHostRedirect_ReturnsHttpErrorWithoutContactingTheOtherHost()
+    {
+        var handler = StubHandler.Respond(_ => Redirect("https://evil.example.com/a.json"));
+
+        var result = await Fetcher(handler).FetchAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(FetchKind.HttpError, result.Kind);
+        Assert.Equal(302, result.StatusCode);
+        Assert.Equal("被重定向到其他主机：https://evil.example.com/a.json", result.Error);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task FetchAsync_MoreThanFiveRedirects_ReturnsHttpError()
+    {
+        var handler = StubHandler.Respond(call => Redirect($"/hop{call}"));
+
+        var result = await Fetcher(handler).FetchAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(FetchKind.HttpError, result.Kind);
+        Assert.Equal("重定向次数过多", result.Error);
+        Assert.Equal(6, handler.Requests.Count);
+    }
+
     // ---------- 辅助 ----------
 
     private static FetchRequest Request(

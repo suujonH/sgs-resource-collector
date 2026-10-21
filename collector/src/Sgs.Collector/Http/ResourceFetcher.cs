@@ -34,6 +34,7 @@ public sealed record FetchResult(
 public sealed class ResourceFetcher : IResourceFetcher
 {
     private const int ReadChunkSize = 81920;
+    private const int MaxRedirects = 5;
 
     private readonly HttpClient _http;
     private readonly CollectorOptions _options;
@@ -60,26 +61,13 @@ public sealed class ResourceFetcher : IResourceFetcher
                 await Task.Delay(_retryDelay(attempt), ct);
             }
 
-            using var message = new HttpRequestMessage(HttpMethod.Get, request.Uri);
-            HeaderApplier.Apply(message, request.Referer, request.Rules, request.Key);
-            if (!string.IsNullOrEmpty(request.IfNoneMatch))
-            {
-                message.Headers.TryAddWithoutValidation("If-None-Match", request.IfNoneMatch);
-            }
-
-            if (!string.IsNullOrEmpty(request.IfModifiedSince))
-            {
-                message.Headers.TryAddWithoutValidation("If-Modified-Since", request.IfModifiedSince);
-            }
-
             // 超时令牌同时管住发送请求和读取响应体
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
 
             try
             {
-                using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-                var result = await ReadResponseAsync(request, response, timeout.Token);
+                var result = await SendFollowingRedirectsAsync(request, timeout.Token);
 
                 if (result.Kind == FetchKind.HttpError && IsRetryable(result.StatusCode) && attempt < _options.RetryCount)
                 {
@@ -104,6 +92,54 @@ public sealed class ResourceFetcher : IResourceFetcher
         }
 
         return new FetchResult(FetchKind.NetworkError, null, null, null, null, null, null, lastError);
+    }
+
+    private HttpRequestMessage BuildMessage(FetchRequest request, Uri uri)
+    {
+        var message = new HttpRequestMessage(HttpMethod.Get, uri);
+        HeaderApplier.Apply(message, request.Referer, request.Rules, request.Key);
+        if (!string.IsNullOrEmpty(request.IfNoneMatch))
+        {
+            message.Headers.TryAddWithoutValidation("If-None-Match", request.IfNoneMatch);
+        }
+
+        if (!string.IsNullOrEmpty(request.IfModifiedSince))
+        {
+            message.Headers.TryAddWithoutValidation("If-Modified-Since", request.IfModifiedSince);
+        }
+
+        return message;
+    }
+
+    // 生产环境的 HttpClient 必须设置 AllowAutoRedirect = false（DI 注册时配置），重定向由这里处理：
+    // 只允许跟随同主机的跳转，每一跳都按原请求重新应用请求头，避免把 Cookie 等规则头发给其他主机
+    private async Task<FetchResult> SendFollowingRedirectsAsync(FetchRequest request, CancellationToken token)
+    {
+        var current = request.Uri;
+        for (var hop = 0; ; hop++)
+        {
+            using var message = BuildMessage(request, current);
+            using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, token);
+            var status = (int)response.StatusCode;
+            if (status is not (301 or 302 or 303 or 307 or 308) || response.Headers.Location is not { } location)
+            {
+                return await ReadResponseAsync(request, response, current, token);
+            }
+
+            var target = new UriBuilder(location.IsAbsoluteUri ? location : new Uri(current, location)) { Fragment = string.Empty }.Uri;
+            if (!string.Equals(target.Host, request.Uri.Host, StringComparison.OrdinalIgnoreCase)
+                || (target.Scheme != Uri.UriSchemeHttp && target.Scheme != Uri.UriSchemeHttps))
+            {
+                return new FetchResult(FetchKind.HttpError, status, null, null, null, null, current, "被重定向到其他主机：" + target.AbsoluteUri);
+            }
+
+            if (hop >= MaxRedirects)
+            {
+                return new FetchResult(FetchKind.HttpError, status, null, null, null, null, current, "重定向次数过多");
+            }
+
+            current = target;
+        }
     }
 
     internal static TimeSpan DefaultRetryDelay(int attempt) => TimeSpan.FromSeconds(attempt * attempt);
@@ -137,12 +173,12 @@ public sealed class ResourceFetcher : IResourceFetcher
         return headers.NonValidated.TryGetValues(name, out var values) ? values.FirstOrDefault() : null;
     }
 
-    private async Task<FetchResult> ReadResponseAsync(FetchRequest request, HttpResponseMessage response, CancellationToken token)
+    private async Task<FetchResult> ReadResponseAsync(FetchRequest request, HttpResponseMessage response, Uri requestedUri, CancellationToken token)
     {
         var status = (int)response.StatusCode;
         var etag = FirstRawValue(response.Headers, "ETag");
         var lastModified = FirstRawValue(response.Content.Headers, "Last-Modified");
-        var finalUri = response.RequestMessage?.RequestUri;
+        var finalUri = response.RequestMessage?.RequestUri ?? requestedUri;
 
         FetchResult Result(FetchKind kind, byte[]? body = null, string? contentType = null, string? error = null) =>
             new(kind, status, body, etag, lastModified, contentType, finalUri, error);

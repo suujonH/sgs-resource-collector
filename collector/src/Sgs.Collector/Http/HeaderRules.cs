@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -141,7 +142,7 @@ public sealed class HeaderRuleSet
     private static Regex CompileWildcard(string pattern)
     {
         var expression = "^" + Regex.Escape(pattern).Replace(@"\*", ".*").Replace(@"\?", ".") + "$";
-        return new Regex(expression, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline);
+        return new Regex(expression, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline | RegexOptions.NonBacktracking);
     }
 
     // 整个 headers_json 无法解析时返回 null（调用方跳过该规则）；坏掉的单个条目只丢弃它自己
@@ -174,6 +175,12 @@ public sealed class HeaderRuleSet
             }
 
             if (HeaderNames.IsForbidden(entry.Name))
+            {
+                continue;
+            }
+
+            // 值里的换行和 NUL 会造成请求头注入
+            if (entry.Value.AsSpan().IndexOfAny('\r', '\n', '\0') >= 0)
             {
                 continue;
             }
@@ -224,6 +231,8 @@ internal static class HeaderApplier
 
     private const string RuleSourcePrefix = "rule:";
 
+    private static readonly ConcurrentDictionary<string, bool> NameVerdicts = new(StringComparer.OrdinalIgnoreCase);
+
     public static void Apply(HttpRequestMessage request, Uri? referer, HeaderRuleSet rules, string key)
     {
         var uri = request.RequestUri ?? throw new ArgumentException("请求没有设置 RequestUri", nameof(request));
@@ -253,7 +262,7 @@ internal static class HeaderApplier
             var source = RuleSourcePrefix + rule.Id.ToString(CultureInfo.InvariantCulture);
             foreach (var entry in rule.Headers)
             {
-                if (HeaderNames.IsForbidden(entry.Name))
+                if (HeaderNames.IsForbidden(entry.Name) || !IsAcceptedName(entry.Name))
                 {
                     continue;
                 }
@@ -267,6 +276,23 @@ internal static class HeaderApplier
         }
 
         return headers;
+    }
+
+    // 用空请求试探头名：非法名称或 .NET 归为内容头的名称会被拒绝，Preview 与 Apply 都据此跳过
+    private static bool IsAcceptedName(string name)
+    {
+        return NameVerdicts.GetOrAdd(name, static n =>
+        {
+            try
+            {
+                using var scratch = new HttpRequestMessage();
+                return scratch.Headers.TryAddWithoutValidation(n, "x");
+            }
+            catch (Exception ex) when (ex is FormatException or InvalidOperationException)
+            {
+                return false;
+            }
+        });
     }
 
     private static void Set(HttpRequestMessage request, string name, string value)

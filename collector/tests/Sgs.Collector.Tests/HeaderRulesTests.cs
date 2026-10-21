@@ -478,6 +478,32 @@ public sealed class HeaderRulesTests
         Assert.All(preview, h => Assert.Equal("default", h.Source));
     }
 
+    [Fact]
+    public void Preview_SkipsNamesThatARequestRefuses_AndApplyAgrees()
+    {
+        var set = Build(Rule(1, "*", HeadersJson(("Bad Name", "1"), ("Last-Modified", "x"), ("X-Keep", "1"))));
+        var preview = HeaderApplier.Preview(Target, EntryPage, set, Key);
+        using var request = new HttpRequestMessage(HttpMethod.Get, Target);
+
+        HeaderApplier.Apply(request, EntryPage, set, Key);
+
+        Assert.Equal(new[] { "X-Keep: 1 [rule:1]" }, preview.Where(h => h.Source != "default").Select(h => $"{h.Name}: {h.Value} [{h.Source}]"));
+        var actual = Snapshot(request);
+        Assert.Equal(preview.Count, actual.Count);
+        Assert.False(actual.ContainsKey("Bad Name"));
+        Assert.False(actual.ContainsKey("Last-Modified"));
+    }
+
+    [Fact]
+    public void Build_DropsHeaderEntriesWhoseValueContainsCrLfOrNul()
+    {
+        var set = Build(Rule(1, "*", HeadersJson(("X-Cr", "a\rb"), ("X-Lf", "a\nb"), ("X-Nul", "a\0b"), ("X-Ok", "fine"))));
+
+        var preview = HeaderApplier.Preview(Target, EntryPage, set, Key);
+
+        Assert.Equal(new[] { "X-Ok: fine [rule:1]" }, preview.Where(h => h.Source != "default").Select(h => $"{h.Name}: {h.Value} [{h.Source}]"));
+    }
+
     // ---------- HeaderApplier.Apply ----------
 
     [Fact]
