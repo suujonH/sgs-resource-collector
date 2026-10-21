@@ -1,0 +1,7 @@
+collector/**/bin/
+collector/**/obj/
+collector/src/Sgs.Collector/App_Data/
+collector/src/Sgs.Collector/appsettings.Local.json
+worker/node_modules/
+worker/.wrangler/
+worker/.dev.vars
