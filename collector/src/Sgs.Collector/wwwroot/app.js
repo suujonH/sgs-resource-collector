@@ -324,7 +324,7 @@
   tabs.progress = { show: function () { renderProgress(); } };
 
   // ---------- 资源 ----------
-  var R = { q: '', status: 'all', offset: 0, limit: 100, root: null, built: false, list: null, detail: null };
+  var R = { q: '', status: 'all', offset: 0, limit: 100, root: null, built: false, list: null, detail: null, gen: 0 };
 
   function backToList() { R.detail.hidden = true; R.list.hidden = false; loadResources(); }
 
@@ -346,7 +346,11 @@
   }
 
   function loadResources() {
-    api('GET', '/api/resources?' + qs({ q: R.q, status: R.status, offset: R.offset, limit: R.limit })).then(function (d) {
+    // 只渲染最后一次请求的结果：先发出的请求可能后返回
+    var gen = ++R.gen;
+    var offset = R.offset;
+    api('GET', '/api/resources?' + qs({ q: R.q, status: R.status, offset: offset, limit: R.limit })).then(function (d) {
+      if (gen !== R.gen) return;
       var rows = d.items.map(function (it) {
         return h('tr', { class: 'clickable', onclick: function () { openResource(it.id); } },
           h('td', { class: 'key mono', text: it.key }),
@@ -358,8 +362,8 @@
       });
       setChildren(R.listBox,
         d.items.length ? tableOf(['key', '最新版本', '最后结果', 'HTTP 状态', '最后检查', '最后成功'], rows) : empty('没有符合条件的资源'),
-        pager(d.total, R.offset, R.limit, function (o) { R.offset = o; loadResources(); }));
-    }).catch(function (e) { setChildren(R.listBox, errBox(e)); });
+        pager(d.total, offset, R.limit, function (o) { R.offset = o; loadResources(); }));
+    }).catch(function (e) { if (gen === R.gen) setChildren(R.listBox, errBox(e)); });
   }
 
   function openResource(id) {
@@ -643,7 +647,10 @@
     }
     if (rule && rule.headers.length) rule.headers.forEach(function (x) { addPair(x.name, x.value); });
     else addPair('', '');
+    var saveBtn = h('button', { class: 'btn primary', type: 'button', text: '保存', onclick: save });
     function save() {
+      // 请求未完成前禁止再次提交，避免重复新增规则
+      if (saveBtn.disabled) return;
       var headers = [];
       Array.prototype.forEach.call(pairs.children, function (row) {
         var name = row.querySelector('[data-role=name]').value.trim();
@@ -651,12 +658,13 @@
         if (name || value) headers.push({ name: name, value: value });
       });
       var body = { pattern: pattern.value.trim(), headers: headers, enabled: enabled.checked, note: note.value.trim() };
+      saveBtn.disabled = true;
       var req = rule ? api('PUT', '/api/header-rules/' + rule.id, body) : api('POST', '/api/header-rules', body);
       req.then(function () {
         toast('已保存（下一轮收集生效）');
         clear(H.formBox);
         loadRules();
-      }).catch(function (e) { setChildren(errOut, errBox(e)); });
+      }).catch(function (e) { saveBtn.disabled = false; setChildren(errOut, errBox(e)); });
     }
     setChildren(H.formBox, h('div', { class: 'card form-grid' },
       h('h3', { text: rule ? '编辑规则 #' + rule.id : '新增规则' }),
@@ -667,7 +675,7 @@
         h('button', { class: 'btn', type: 'button', text: '添加请求头', onclick: function () { addPair('', ''); } })),
       errOut,
       h('div', { class: 'row' },
-        h('button', { class: 'btn primary', type: 'button', text: '保存', onclick: save }),
+        saveBtn,
         h('button', { class: 'btn', type: 'button', text: '取消', onclick: function () { clear(H.formBox); } }))));
     H.formBox.scrollIntoView({ block: 'nearest' });
   }
