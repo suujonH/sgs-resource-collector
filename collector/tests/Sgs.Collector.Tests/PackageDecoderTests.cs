@@ -12,7 +12,7 @@ public sealed class PackageDecoderTests
     private const string ConfigKey = "web.sanguosha.com/220/h5_2/res/config/Config_w.sgs";
     private const string GlobalConfKey = "web.sanguosha.com/220/h5_2/res/config/h5_global_conf_w.sgs";
 
-    private const string DecryptFailed = "解密结果既不是 gzip 也不是 UTF-8 文本（aesresc 可能与资源版本不匹配）";
+    private const string DecryptFailed = "解密结果既不是 gzip 也不是 UTF-8 文本（解密密钥可能已变更）";
     private const string Json = "{\"id\":1}";
 
     private static readonly PackageDecoder Decoder = new();
@@ -243,16 +243,30 @@ public sealed class PackageDecoderTests
     }
 
     [Fact]
-    public void Decode_AesRescNotReady_FailsTheMemberWithAReadableError()
+    public void Decode_AesCfbEncryptedGzipMember_IsDecryptedWithoutAesResc()
     {
-        // 与 ResourceProcessor 的用法一致：没有 aesresc 时，Decrypt 的异常变成成员错误，文本类成员照常处理
+        // 与 ResourceProcessor 的用法一致：现行客户端的加密方式不需要 aesresc
         using var aesResc = new AesRescProvider();
-        var zip = Zip(("a.json", Utf8(Json)), ("b.sgs", Encrypt(Utf8("[]"))));
+        var zip = Zip(("a.json", Utf8(Json)), ("b.sgs", CfbEncrypt(Gzip(Utf8("[1,2]")))));
 
         var members = Decoder.Decode(ConfigKey, zip, aesResc.Decrypt);
 
         Assert.Null(members[0].Error);
-        Assert.Equal("InvalidOperationException: aesresc 未就绪，无法解密", members[1].Error);
+        Assert.Null(members[1].Error);
+        Assert.Equal("b.json", members[1].SuggestedPath);
+        Assert.Equal(Utf8("[1,2]"), members[1].Bytes);
+    }
+
+    [Fact]
+    public void Decode_UndecryptableMemberWithoutAesResc_FailsTheMemberWithAReadableError()
+    {
+        using var aesResc = new AesRescProvider();
+        var zip = Zip(("a.json", Utf8(Json)), ("b.sgs", Encrypt(Gzip(Utf8("[1,2]")))));
+
+        var members = Decoder.Decode(ConfigKey, zip, aesResc.Decrypt);
+
+        Assert.Null(members[0].Error);
+        Assert.Equal(DecryptFailed, members[1].Error);
     }
 
     [Fact]
@@ -432,6 +446,16 @@ public sealed class PackageDecoderTests
     // 是孤立的 UTF-8 延续字节，严格解码一定失败，所以 PackageDecoder 会把它当作需要解密的二进制。
     // 不能用 0x5A 这类低位掩码：ASCII 异或后仍是 ASCII，会被当成文本而跳过解密
     private static byte[] Encrypt(byte[] data) => data.Select(b => (byte)(b ^ 0xFF)).ToArray();
+
+    // 现行客户端的加密方式，对应 SgsCipher.Decrypt
+    private static byte[] CfbEncrypt(byte[] data)
+    {
+        var padded = new byte[(data.Length / 16 + 1) * 16];
+        data.CopyTo(padded, 0);
+        using var aes = System.Security.Cryptography.Aes.Create();
+        aes.Key = SgsCipher.Key;
+        return aes.EncryptCfb(padded, SgsCipher.Iv, System.Security.Cryptography.PaddingMode.None, 128)[..data.Length];
+    }
 
     private static byte[] Zip(params (string Name, byte[] Data)[] entries)
     {

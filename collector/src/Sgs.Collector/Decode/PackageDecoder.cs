@@ -77,7 +77,7 @@ public sealed class PackageDecoder
             }
             else if (decrypted && !LooksLikeText(bytes))
             {
-                return new DecodedMember(path, path, null, "解密结果既不是 gzip 也不是 UTF-8 文本（aesresc 可能与资源版本不匹配）");
+                return new DecodedMember(path, path, null, "解密结果既不是 gzip 也不是 UTF-8 文本（解密密钥可能已变更）");
             }
 
             var extension = GuessExtension(bytes);
