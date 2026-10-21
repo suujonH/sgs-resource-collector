@@ -92,12 +92,17 @@ public sealed class Db
         await connection.ExecuteAsync("PRAGMA journal_mode = WAL;");
         await connection.ExecuteAsync(Schema.Sql);
 
-        var ruleCount = await connection.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM header_rules");
-        if (ruleCount == 0)
+        // 默认规则只在全新数据库（user_version = 0）上播种：用户删光规则后重启，默认规则不会复活
+        var userVersion = await connection.ExecuteScalarAsync<long>("PRAGMA user_version;");
+        if (userVersion == 0)
         {
-            await connection.ExecuteAsync(
-                "INSERT INTO header_rules (pattern, headers_json, enabled, note, updated_at) VALUES (@pattern, @headersJson, 1, @note, @now)",
-                new { pattern = "*", headersJson = BuildDefaultHeadersJson(), note = "默认浏览器请求头", now = Clock.NowIso() });
+            var ruleCount = await connection.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM header_rules");
+            if (ruleCount == 0)
+            {
+                await connection.ExecuteAsync(
+                    "INSERT INTO header_rules (pattern, headers_json, enabled, note, updated_at) VALUES (@pattern, @headersJson, 1, @note, @now)",
+                    new { pattern = "*", headersJson = BuildDefaultHeadersJson(), note = "默认浏览器请求头", now = Clock.NowIso() });
+            }
         }
 
         await connection.ExecuteAsync("PRAGMA user_version = 1;");

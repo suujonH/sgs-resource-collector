@@ -58,13 +58,14 @@ public sealed class RunRepository
             new { id });
     }
 
-    public async Task<IReadOnlyList<RunRow>> ListAsync(int offset, int limit)
+    public async Task<PagedResult<RunRow>> ListAsync(int offset, int limit)
     {
         await using var connection = await _db.OpenAsync();
+        var total = await connection.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM runs");
         var rows = await connection.QueryAsync<RunRow>(
             "SELECT * FROM runs ORDER BY id DESC LIMIT @limit OFFSET @offset",
             new { limit, offset });
-        return rows.AsList();
+        return new PagedResult<RunRow>(total, rows.AsList());
     }
 
     public Task AddFailureAsync(long runId, long resourceId, long? httpStatus, string error, bool hadHistory, string now)

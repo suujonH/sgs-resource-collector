@@ -53,6 +53,19 @@ public sealed class RepositoryTests : IAsyncLifetime
     // ---------- Db ----------
 
     [Fact]
+    public async Task InitializeAsync_AfterAllRulesDeleted_DoesNotReseedDefault()
+    {
+        foreach (var rule in await _headerRules.ListAsync())
+        {
+            Assert.True(await _headerRules.DeleteAsync(rule.Id));
+        }
+
+        await _db.InitializeAsync();
+
+        Assert.Empty(await _headerRules.ListAsync());
+    }
+
+    [Fact]
     public async Task InitializeAsync_RunTwice_KeepsSingleDefaultHeaderRule()
     {
         await _db.InitializeAsync(); // 夹具里已经初始化过一次，这里是第二次
@@ -541,8 +554,12 @@ public sealed class RepositoryTests : IAsyncLifetime
         var id2 = await _runs.CreateAsync("schedule", T2);
         var id3 = await _runs.CreateAsync("restore", T3);
 
-        Assert.Equal(new[] { id3, id2 }, (await _runs.ListAsync(0, 2)).Select(r => r.Id));
-        Assert.Equal(new[] { id1 }, (await _runs.ListAsync(2, 2)).Select(r => r.Id));
+        var first = await _runs.ListAsync(0, 2);
+        Assert.Equal(3, first.Total);
+        Assert.Equal(new[] { id3, id2 }, first.Items.Select(r => r.Id));
+        var second = await _runs.ListAsync(2, 2);
+        Assert.Equal(3, second.Total);
+        Assert.Equal(new[] { id1 }, second.Items.Select(r => r.Id));
     }
 
     [Fact]

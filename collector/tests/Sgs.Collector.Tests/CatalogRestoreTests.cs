@@ -52,7 +52,7 @@ public sealed class CatalogRestoreTests : IAsyncLifetime
         Assert.Equal(3, count);
         Assert.Equal([2L, 3L], progress.ToArray());
         await AssertStateAsync();
-        var run = Assert.Single(await _runs.ListAsync(0, 10));
+        var run = Assert.Single((await _runs.ListAsync(0, 10)).Items);
         Assert.Equal("restore", run.TriggerKind);
         Assert.Equal("completed", run.Status);
         Assert.Equal("{\"restored\":3}", run.StatsJson);
