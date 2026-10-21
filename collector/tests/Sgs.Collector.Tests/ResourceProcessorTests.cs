@@ -424,6 +424,46 @@ public sealed class ResourceProcessorTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UserCancelBetweenMembers_CommitsNothing()
+    {
+        var pkg = Item("res/config/Test_w.sgs");
+        _fetcher.Respond(r => FakeFetcher.Ok(r, Zip(("a.json", Utf8("""{"a":1}""")), ("b.json", Utf8("""{"b":1}""")), ("c.json", Utf8("""{"c":1}"""))), "application/octet-stream", "\"p1\"", Lm1));
+        using var cts = new CancellationTokenSource();
+        var firstMember = ContentHasher.Hash(Utf8("""{"a":1}"""));
+        _store.OnPut = async (hash, _) =>
+        {
+            if (hash == firstMember)
+            {
+                // 第一个成员上传完成后用户终止
+                await cts.CancelAsync();
+            }
+        };
+
+        Assert.Equal(ItemOutcome.Cancelled, await _processor.ProcessAsync(pkg, _run, _queue, cts.Token));
+
+        var row = await RowAsync(pkg.Key);
+        Assert.Null(row.Etag);
+        Assert.Null(row.LastModified);
+        Assert.Null(row.ProcessingRev);
+        Assert.Equal(0, await ScalarAsync("SELECT COUNT(*) FROM resources WHERE resource_key=@key", new { key = pkg.Key + "/b.json" }));
+        Assert.Equal(0, await ScalarAsync("SELECT COUNT(*) FROM links", new { }));
+        Assert.Empty(await _resources.GetRecentFailuresAsync(row.Id, 10));
+        var stats = _progress.Snapshot();
+        Assert.Equal(1, stats.Cancelled);
+        Assert.Equal(0, stats.Failed);
+    }
+
+    [Fact]
+    public async Task DatabaseFault_PropagatesInsteadOfBeingRecordedAsFailure()
+    {
+        var png = Item("res/a/icon.png");
+        _fetcher.Respond(r => FakeFetcher.Ok(r, PngA, "image/png"));
+        await ExecuteAsync("DROP TABLE versions", new { });
+
+        await Assert.ThrowsAsync<SqliteException>(() => ProcessAsync(png));
+    }
+
+    [Fact]
     public void CheckBody_DetectsRedirectEmptyAndHtml()
     {
         var png = Item("res/a/icon.png");

@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Sgs.Collector.Common;
 using Sgs.Collector.Data;
 using Sgs.Collector.Decode;
@@ -108,9 +109,9 @@ public sealed class ResourceProcessor
                 run.Progress.Complete(ItemOutcome.Cancelled, state.HadHistory);
                 return ItemOutcome.Cancelled;
             }
-            catch (Exception ex) when (!state.FailureRecording)
+            catch (Exception ex) when (!state.FailureRecording && ex is not SqliteException)
             {
-                // 获取成功后的处理错误。RecordFailureAsync 自身的数据库异常不进这里，直接向外抛出
+                // 获取成功后的处理错误（数据库故障除外，向外抛出由 CrawlRunner 按致命错误处理）。RecordFailureAsync 自身的数据库异常不进这里，直接向外抛出
                 await RecordFailureAsync(item.Key, res.Id, state, run, state.HttpStatus, Describe(ex), clearValidators: true);
                 return ItemOutcome.Failed;
             }
@@ -258,6 +259,7 @@ public sealed class ResourceProcessor
 
         long? rev = DiscoveryRules.IsProcessedKey(item.Key) || members.Count > 0 || links.Count > 0 ? ProcessingRev.Current : null;
         // 验证头、processing_rev、links 只在整个条目成功后，在同一个事务里写入
+        ct.ThrowIfCancellationRequested();
         await _resources.CommitProcessedAsync(res.Id, ToDb(outcome), fr.StatusCode ?? 200, fr.ETag, fr.LastModified, rev, links, Clock.NowIso());
         run.Progress.Complete(outcome, true);
         return outcome;
@@ -292,6 +294,8 @@ public sealed class ResourceProcessor
 
         foreach (var assignment in MemberKeyAssigner.Assign(existing, valid))
         {
+            // 仓储调用不可取消，且未变化的成员不上传：每个成员开始前检查一次
+            ct.ThrowIfCancellationRequested();
             if (assignment.Warning is not null)
             {
                 run.Progress.Warn($"{parentKey}：{assignment.Warning}");
@@ -326,9 +330,9 @@ public sealed class ResourceProcessor
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not SqliteException)
             {
-                // 继续处理其它成员
+                // 继续处理其它成员（数据库故障除外，向外抛出）
                 errors.Add($"{assignment.Member.SourcePath}：{Describe(ex)}");
                 run.Progress.MemberFailed();
             }
