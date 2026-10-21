@@ -637,6 +637,18 @@ public sealed class ResourceFetcherTests
     }
 
     [Fact]
+    public async Task FetchAsync_HttpsToHttpRedirect_IsRejected()
+    {
+        var handler = StubHandler.Respond(_ => Redirect("http://web.sanguosha.com/220/h5_2/a.json"));
+
+        var result = await Fetcher(handler).FetchAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(FetchKind.HttpError, result.Kind);
+        Assert.Equal("被重定向到不安全的地址：http://web.sanguosha.com/220/h5_2/a.json", result.Error);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
     public async Task FetchAsync_MoreThanFiveRedirects_ReturnsHttpError()
     {
         var handler = StubHandler.Respond(call => Redirect($"/hop{call}"));

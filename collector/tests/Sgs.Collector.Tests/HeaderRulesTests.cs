@@ -171,6 +171,16 @@ public sealed class HeaderRulesTests
     }
 
     [Fact]
+    public void Build_SkipsWildcardPatternsTooLargeForTheMatcher()
+    {
+        var set = Build(
+            Rule(1, new string('a', 20000) + "*", HeadersJson(("X-Level", "huge"))),
+            Rule(2, "*", HeadersJson(("X-Level", "any"))));
+
+        Assert.Equal([2L], set.Match("abc").Select(r => r.Id));
+    }
+
+    [Fact]
     public void Match_ReturnsEmptyWhenNothingMatchesAndForTheEmptySet()
     {
         var set = Build(Rule(1, "other.example.com/*", HeadersJson(("X-Level", "1"))));

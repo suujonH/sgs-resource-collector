@@ -106,7 +106,19 @@ public sealed class HeaderRuleSet
             }
             else
             {
-                wildcardRules.Add(new CompiledHeaderRule(row.Id, row.Pattern, false, literalLength, CompileWildcard(row.Pattern), headers));
+                Regex regex;
+                try
+                {
+                    regex = CompileWildcard(row.Pattern);
+                }
+                catch (NotSupportedException ex)
+                {
+                    // NonBacktracking 对过长的模式有自动机规模上限，超出时跳过该规则而不是让整个加载失败
+                    logger?.LogWarning(ex, "请求头规则 {RuleId}（{Pattern}）的模式过于复杂，已跳过该规则", row.Id, row.Pattern);
+                    continue;
+                }
+
+                wildcardRules.Add(new CompiledHeaderRule(row.Id, row.Pattern, false, literalLength, regex, headers));
             }
         }
 

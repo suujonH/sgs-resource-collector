@@ -133,6 +133,12 @@ public sealed class ResourceFetcher : IResourceFetcher
                 return new FetchResult(FetchKind.HttpError, status, null, null, null, null, current, "被重定向到其他主机：" + target.AbsoluteUri);
             }
 
+            // 不允许从 https 降级到 http，否则规则头会以明文发出
+            if (current.Scheme == Uri.UriSchemeHttps && target.Scheme == Uri.UriSchemeHttp)
+            {
+                return new FetchResult(FetchKind.HttpError, status, null, null, null, null, current, "被重定向到不安全的地址：" + target.AbsoluteUri);
+            }
+
             if (hop >= MaxRedirects)
             {
                 return new FetchResult(FetchKind.HttpError, status, null, null, null, null, current, "重定向次数过多");
