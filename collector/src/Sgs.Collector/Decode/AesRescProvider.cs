@@ -38,7 +38,8 @@ public sealed class AesRescProvider : IDisposable
     public byte[] Decrypt(byte[] data)
     {
         var decrypted = SgsCipher.Decrypt(data);
-        if (decrypted.Length >= 2 && decrypted[0] == 0x1F && decrypted[1] == 0x8B)
+        // 连同压缩方法字节一起判断，降低密钥不对时碰巧得到 gzip 头的概率
+        if (decrypted.Length >= 3 && decrypted[0] == 0x1F && decrypted[1] == 0x8B && decrypted[2] == 0x08)
         {
             return decrypted;
         }
