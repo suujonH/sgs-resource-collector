@@ -380,6 +380,50 @@ describe("GET /resource", () => {
 				expect(res.headers.get("Content-Range"), range).toBeNull();
 			}
 		});
+
+		it("If-Range 与当前强 ETag 一致才应用 Range，否则（含日期）返回完整 200", async () => {
+			const key = uniqueKey("if-range");
+			const row = await publish(key, 1, "0123456789");
+
+			const match = await send(resourcePath(key), { headers: { Range: "bytes=0-3", "If-Range": `"${row.hash}"` } });
+			expect(match.status).toBe(206);
+			expect(await match.text()).toBe("0123");
+
+			for (const ifRange of ['"other"', `W/"${row.hash}"`, "Wed, 21 Oct 2026 07:28:00 GMT"]) {
+				const res = await send(resourcePath(key), { headers: { Range: "bytes=0-3", "If-Range": ifRange } });
+				expect(res.status, ifRange).toBe(200);
+				expect(await res.text(), ifRange).toBe("0123456789");
+				expect(res.headers.get("Content-Range"), ifRange).toBeNull();
+			}
+		});
+
+		it("自定义域名上冷缓存的 Range 与 If-Range 同样正确", async () => {
+			const key = uniqueKey("cold-range");
+			const row = await publish(key, 1, "0123456789");
+
+			const cold = await send(resourcePath(key), { headers: { Range: "bytes=2-4" } }, CACHE_ORIGIN);
+			expect(cold.status).toBe(206);
+			expect(await cold.text()).toBe("234");
+			expect(cold.headers.get("Content-Range")).toBe("bytes 2-4/10");
+
+			const stale = await send(resourcePath(key), { headers: { Range: "bytes=2-4", "If-Range": '"other"' } }, CACHE_ORIGIN);
+			expect(stale.status).toBe(200);
+			expect(await stale.text()).toBe("0123456789");
+
+			const fresh = await send(resourcePath(key), { headers: { Range: "bytes=2-4", "If-Range": `"${row.hash}"` } }, CACHE_ORIGIN);
+			expect(fresh.status).toBe(206);
+			expect(await fresh.text()).toBe("234");
+		});
+	});
+
+	it("版本号上限 2147483647 可以通过 /resource/{version}/{key} 访问", async () => {
+		const key = uniqueKey("max-version");
+		await publish(key, 2147483647, "max");
+
+		const res = await send(resourcePath(key, 2147483647));
+		expect(res.status).toBe(200);
+		expect(await res.text()).toBe("max");
+		expect(res.headers.get("X-Resource-Version")).toBe("2147483647");
 	});
 
 	describe("If-None-Match", () => {
@@ -674,6 +718,26 @@ describe("POST /internal/sync", () => {
 		await invalidInfo.text();
 	});
 
+	it("contentType 含 CR、LF、NUL 或非可见 ASCII → invalid_content_type", async () => {
+		const key = uniqueKey("sync-ctype");
+		const rows = ["text/plain\r\nX-Evil: 1", "text/plain\n", "text/plain\0", "text/\u00e9", "text/plain\x7f"].map((contentType) => ({
+			key,
+			version: 1,
+			hash: randomHash(),
+			size: 1,
+			contentType,
+			collectedAt: "2026-02-01T08:00:00.000Z",
+		}));
+
+		const res = await postSync(rows);
+
+		expect(await res.json()).toEqual({
+			accepted: 0,
+			rejected: rows.map((_, index) => ({ index, reason: "invalid_content_type" })),
+			conflicts: [],
+		});
+	});
+
 	it("所有行都不合法时也返回 200，accepted 为 0", async () => {
 		const res = await postSync([{ key: "nokey" }, 42]);
 
@@ -885,7 +949,9 @@ describe("资源路径、Range 与 ETag 解析", () => {
 		["1/web.example.com/a/b.png", { key: "web.example.com/a/b.png", version: 1 }],
 		["12/web.example.com/a/b.png", { key: "web.example.com/a/b.png", version: 12 }],
 		["999999999/web.example.com/a", { key: "web.example.com/a", version: 999999999 }],
-		["1000000000/web.example.com/a", { key: "1000000000/web.example.com/a", version: null }],
+		["1000000000/web.example.com/a", { key: "web.example.com/a", version: 1000000000 }],
+		["2147483647/web.example.com/a", { key: "web.example.com/a", version: 2147483647 }],
+		["2147483648/web.example.com/a", { key: "2147483648/web.example.com/a", version: null }],
 		["0/web.example.com/a", { key: "0/web.example.com/a", version: null }],
 		["01/web.example.com/a", { key: "01/web.example.com/a", version: null }],
 		["1.2.3.4/a/b", { key: "1.2.3.4/a/b", version: null }],

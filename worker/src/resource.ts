@@ -2,6 +2,8 @@ import { blobKey, getCatalog, type ResolvedVersion } from "./catalog";
 import { CORS, NO_STORE, json, shouldUseCache } from "./http";
 
 const RESOURCE_PREFIX = "/resource/";
+// 与 internal.ts 校验的版本号上限一致
+const MAX_VERSION = 2147483647;
 
 export function parseResourcePath(rest: string): { key: string; version: number | null } | null {
 	if (rest === "") {
@@ -10,7 +12,7 @@ export function parseResourcePath(rest: string): { key: string; version: number 
 	const segs = rest.split("/");
 	let version: number | null = null;
 	let raw = rest;
-	if (/^[1-9]\d{0,8}$/.test(segs[0]) && segs.length >= 2) {
+	if (/^[1-9]\d{0,9}$/.test(segs[0]) && Number(segs[0]) <= MAX_VERSION && segs.length >= 2) {
 		version = Number(segs[0]);
 		raw = segs.slice(1).join("/");
 	}
@@ -96,7 +98,9 @@ export async function handleResource(request: Request, env: Env, url: URL): Prom
 	}
 
 	const useCache = shouldUseCache(url);
-	if (useCache && request.method === "GET") {
+	const hasRange = request.headers.has("Range");
+	// If-Range 需要对照当前 ETag，缓存命中时无从判断，交给 R2 路径处理
+	if (useCache && request.method === "GET" && !(hasRange && request.headers.has("If-Range"))) {
 		// Cloudflare 的 cache.match 会自行处理 Range（206）和 If-None-Match（304）
 		const hit = await caches.default.match(request);
 		if (hit) {
@@ -118,7 +122,8 @@ export async function handleResource(request: Request, env: Env, url: URL): Prom
 		return new Response(null, { status: 200, headers });
 	}
 
-	if (useCache) {
+	// 只有不带 Range 的完整 GET 才回填缓存，避免为一个区间请求拉取整个对象
+	if (useCache && !hasRange) {
 		// 先写缓存、再从缓存取：不用 tee，避免在内存中缓冲大文件
 		const obj = await env.BLOBS.get(blobKey(meta.hash));
 		if (obj === null) {
@@ -137,7 +142,9 @@ export async function handleResource(request: Request, env: Env, url: URL): Prom
 
 async function serveFromR2(request: Request, env: Env, meta: ResolvedVersion, headers: Headers): Promise<Response> {
 	const key = blobKey(meta.hash);
-	const rangeHeader = request.headers.get("Range");
+	// If-Range 必须与当前强 ETag 完全一致才应用 Range；日期形式一律视为不匹配
+	const ifRange = request.headers.get("If-Range");
+	const rangeHeader = ifRange !== null && ifRange !== `"${meta.hash}"` ? null : request.headers.get("Range");
 	const range = rangeHeader === null ? null : parseRange(rangeHeader, meta.size);
 
 	if (range === "unsatisfiable") {

@@ -105,7 +105,7 @@ function validateRow(raw: unknown): { row: CatalogVersion } | { reason: string }
 	if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
 		return { reason: "invalid_size" };
 	}
-	if (typeof contentType !== "string" || contentType.length < 1 || contentType.length > 200) {
+	if (typeof contentType !== "string" || contentType.length < 1 || contentType.length > 200 || /[^\x20-\x7E]/.test(contentType)) {
 		return { reason: "invalid_content_type" };
 	}
 	if (typeof collectedAt !== "string" || collectedAt.length < 1 || collectedAt.length > 40) {
