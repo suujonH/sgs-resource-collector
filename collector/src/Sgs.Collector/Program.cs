@@ -16,6 +16,9 @@ using Sgs.Collector.Sync;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false);
+// 本地设置之后重新追加，保证 环境变量 与 命令行 优先于 appsettings.Local.json
+builder.Configuration.AddEnvironmentVariables();
+builder.Configuration.AddCommandLine(args);
 
 builder.Services.AddOptions<CollectorOptions>().Bind(builder.Configuration.GetSection(CollectorOptions.SectionName)).ValidateOnStart();
 builder.Services.AddOptions<WorkerOptions>().Bind(builder.Configuration.GetSection(WorkerOptions.SectionName)).ValidateOnStart();

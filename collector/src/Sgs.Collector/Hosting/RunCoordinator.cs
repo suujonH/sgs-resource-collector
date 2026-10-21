@@ -109,6 +109,7 @@ public sealed class RunCoordinator
     private CancellationTokenSource? _cts;
     private ManualTaskState? _manualTask;
     private DateTimeOffset? _nextScheduledAt;
+    private Task? _active;
 
     public RunCoordinator(
         CrawlRunner runner,
@@ -162,7 +163,7 @@ public sealed class RunCoordinator
             _state = StateRunning;
             _cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.ApplicationStopping);
             var token = _cts.Token;
-            _ = Task.Run(() => ExecuteRunAsync(trigger, token));
+            _active = Task.Run(() => ExecuteRunAsync(trigger, token));
             return true;
         }
     }
@@ -199,7 +200,7 @@ public sealed class RunCoordinator
             _manualTask = task;
             _cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.ApplicationStopping);
             var token = _cts.Token;
-            _ = Task.Run(() => ExecuteSyncAsync(full, task, token));
+            _active = Task.Run(() => ExecuteSyncAsync(full, task, token));
             return true;
         }
     }
@@ -218,8 +219,32 @@ public sealed class RunCoordinator
             _manualTask = task;
             _cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.ApplicationStopping);
             var token = _cts.Token;
-            _ = Task.Run(() => ExecuteRestoreAsync(task, token));
+            _active = Task.Run(() => ExecuteRestoreAsync(task, token));
             return true;
+        }
+    }
+
+    // 等待当前后台任务（含不可取消的收尾写库）结束；ct 取消时提前返回，任务自身的异常不外抛
+    public async Task WaitForIdleAsync(CancellationToken ct)
+    {
+        Task? active;
+        lock (_gate)
+        {
+            active = _active;
+        }
+
+        if (active is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await active.WaitAsync(ct);
+        }
+        catch
+        {
+            // 超时取消或任务自身失败（已在任务内记录日志）都不影响关闭流程
         }
     }
 

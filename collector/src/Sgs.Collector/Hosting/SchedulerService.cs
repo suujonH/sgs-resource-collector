@@ -68,4 +68,11 @@ public sealed class SchedulerService : BackgroundService
             // 程序退出
         }
     }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await base.StopAsync(cancellationToken);
+        // 运行已随 ApplicationStopping 取消，这里等待其收尾写库完成
+        await _coordinator.WaitForIdleAsync(cancellationToken);
+    }
 }
