@@ -52,7 +52,7 @@ public sealed class CrawlRunner
         ct.ThrowIfCancellationRequested();
         if (!aes.HasModule)
         {
-            progress.Warn("aesresc 不可用：res/config、res/proto 下的加密包本轮无法解码");
+            progress.Warn("aesresc 不可用：加密包只能用内置的 AES-CFB 密钥解密");
         }
 
         foreach (var seed in _rules.BuildSeedUris(entry?.LayaVersion, entry?.MainVersion))

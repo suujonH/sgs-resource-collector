@@ -369,7 +369,7 @@ public sealed class ResourceProcessorTests : IAsyncLifetime
         var failure = Assert.Single(await _resources.GetRecentFailuresAsync(row.Id, 10));
         Assert.Equal(1, failure.HadHistory);
         Assert.Contains("1 个成员处理失败", failure.Error, StringComparison.Ordinal);
-        Assert.Contains("aesresc 未就绪", failure.Error, StringComparison.Ordinal);
+        Assert.Contains("解密结果既不是 gzip 也不是 UTF-8 文本", failure.Error, StringComparison.Ordinal);
         Assert.Equal(0, await ScalarAsync("SELECT COUNT(*) FROM resources WHERE parent_id=@id AND source_path='b.sgs'", new { id = row.Id }));
         Assert.Equal(1, await ScalarAsync("SELECT COUNT(*) FROM resources WHERE parent_id=@id", new { id = row.Id }));
         var stats = _progress.Snapshot();
