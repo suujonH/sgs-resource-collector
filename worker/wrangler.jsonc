@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sgs-resource",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-19",
+  "observability": { "enabled": true },
+  "durable_objects": { "bindings": [{ "name": "CATALOG", "class_name": "Catalog" }] },
+  "exports": { "Catalog": { "type": "durable-object", "storage": "sqlite" } },
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "sgs-resources" }]
+  // 部署前加："routes": [{ "pattern": "<你的域名>", "custom_domain": true }]
+}
