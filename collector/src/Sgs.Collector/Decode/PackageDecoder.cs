@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 using Sgs.Collector.Common;
@@ -168,7 +169,15 @@ public sealed class PackageDecoder
         using var gzip = new GZipStream(source, CompressionMode.Decompress);
         using var output = new MemoryStream();
         gzip.CopyTo(output);
-        return output.ToArray();
+
+        // 截断的 gzip 可能解出一段前缀而不抛异常，所以校验尾部 ISIZE（原始长度 mod 2^32，小端）
+        var result = output.ToArray();
+        if (bytes.Length < 4 || BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(bytes.Length - 4)) != (uint)result.LongLength)
+        {
+            throw new InvalidDataException("gzip 数据不完整");
+        }
+
+        return result;
     }
 
     private static string CombineMember(string prefix, string child)

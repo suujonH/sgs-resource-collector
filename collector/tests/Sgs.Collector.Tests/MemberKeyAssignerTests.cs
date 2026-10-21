@@ -33,6 +33,22 @@ public sealed class MemberKeyAssignerTests
         Assert.Equal("成员路径重复，已跳过：a.sgs", result[1].Warning);
     }
 
+    [Fact]
+    public void Assign_DuplicateSourcePathsWithoutMappingOnlyAssignTheFirst()
+    {
+        // 两个同名条目一个推断为 .json、一个推断为 .sgs 时，也不能都分配（唯一索引是 source_path）；
+        // 未改名的第二轮先处理，所以 .sgs 那个胜出
+        var renamed = Member("a.sgs", "a.json");
+        var unchanged = Member("a.sgs", "a.sgs");
+
+        var result = MemberKeyAssigner.Assign(Existing(), [renamed, unchanged]);
+
+        Assert.Null(result[0].MemberPath);
+        Assert.Equal("成员路径重复，已跳过：a.sgs", result[0].Warning);
+        Assert.Equal("a.sgs", result[1].MemberPath);
+        Assert.Null(result[1].Warning);
+    }
+
     // ---------- 第二轮：未改名的成员 ----------
 
     [Fact]
@@ -67,7 +83,7 @@ public sealed class MemberKeyAssignerTests
         Assert.Equal("a.json", result[0].MemberPath);
         Assert.Null(result[0].Warning);
         Assert.Null(result[1].MemberPath);
-        Assert.Equal("成员路径冲突，已跳过", result[1].Warning);
+        Assert.Equal("成员路径重复，已跳过：a.json", result[1].Warning);
     }
 
     // ---------- 第三轮：改名的成员 ----------

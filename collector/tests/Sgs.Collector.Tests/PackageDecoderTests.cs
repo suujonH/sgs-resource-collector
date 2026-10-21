@@ -140,6 +140,23 @@ public sealed class PackageDecoderTests
         Assert.StartsWith("InvalidDataException: ", members[1].Error, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Decode_TruncatedGzipMember_FailsOnlyThatMember()
+    {
+        // 去掉末尾 10 字节：GZipStream 不抛异常，只靠 ISIZE 校验发现数据不完整
+        var full = Gzip(Utf8("[" + string.Join(",", Enumerable.Range(0, 2000)) + "]"));
+        var truncated = full[..^10];
+        var zip = Zip(("good.json", Utf8(Json)), ("cut.json", truncated), ("also-good.json", Utf8("[]")));
+
+        var members = Decoder.Decode(PlainKey, zip, Fail);
+
+        Assert.Equal(3, members.Count);
+        Assert.Null(members[0].Error);
+        Assert.Null(members[2].Error);
+        Assert.Null(members[1].Bytes);
+        Assert.Equal("InvalidDataException: gzip 数据不完整", members[1].Error);
+    }
+
     // ---------- 加密上下文 ----------
 
     [Fact]

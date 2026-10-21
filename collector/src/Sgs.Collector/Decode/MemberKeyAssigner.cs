@@ -17,6 +17,8 @@ internal static class MemberKeyAssigner
         // reserved 包含包里已有的全部成员路径（含本次没有出现的成员），新成员不能占用
         var reserved = new HashSet<string>(existing.Values, StringComparer.Ordinal);
         var claimed = new HashSet<string>(StringComparer.Ordinal);
+        // 本次已分配成功的 source_path：数据库对 (parent_id, source_path) 有唯一索引，同一个 source_path 只能落一行
+        var assignedSources = new HashSet<string>(StringComparer.Ordinal);
         var results = new MemberAssignment?[members.Count];
 
         // 第一轮：已有映射的成员沿用原路径。claimed 加不进去只可能是包内有重复条目
@@ -28,7 +30,7 @@ internal static class MemberKeyAssigner
                 continue;
             }
 
-            results[i] = claimed.Add(existingPath)
+            results[i] = claimed.Add(existingPath) && assignedSources.Add(member.SourcePath)
                 ? new MemberAssignment(member, existingPath, null)
                 : new MemberAssignment(member, null, DuplicateWarning + member.SourcePath);
         }
@@ -42,9 +44,21 @@ internal static class MemberKeyAssigner
                 continue;
             }
 
-            results[i] = !reserved.Contains(member.SourcePath) && claimed.Add(member.SourcePath)
-                ? new MemberAssignment(member, member.SourcePath, null)
-                : new MemberAssignment(member, null, ConflictWarning);
+            if (assignedSources.Contains(member.SourcePath))
+            {
+                results[i] = new MemberAssignment(member, null, DuplicateWarning + member.SourcePath);
+                continue;
+            }
+
+            if (!reserved.Contains(member.SourcePath) && claimed.Add(member.SourcePath))
+            {
+                assignedSources.Add(member.SourcePath);
+                results[i] = new MemberAssignment(member, member.SourcePath, null);
+            }
+            else
+            {
+                results[i] = new MemberAssignment(member, null, ConflictWarning);
+            }
         }
 
         // 第三轮：改名的成员先试推断名，被占用就退回原始路径
@@ -56,12 +70,20 @@ internal static class MemberKeyAssigner
             }
 
             var member = members[i];
+            if (assignedSources.Contains(member.SourcePath))
+            {
+                results[i] = new MemberAssignment(member, null, DuplicateWarning + member.SourcePath);
+                continue;
+            }
+
             if (!reserved.Contains(member.SuggestedPath) && claimed.Add(member.SuggestedPath))
             {
+                assignedSources.Add(member.SourcePath);
                 results[i] = new MemberAssignment(member, member.SuggestedPath, null);
             }
             else if (!reserved.Contains(member.SourcePath) && claimed.Add(member.SourcePath))
             {
+                assignedSources.Add(member.SourcePath);
                 results[i] = new MemberAssignment(member, member.SourcePath, RenameConflictWarning + member.SourcePath);
             }
             else
