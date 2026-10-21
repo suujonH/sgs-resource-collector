@@ -71,12 +71,11 @@ dotnet test collector/Sgs.Collector.slnx
 ### 4. 启动 Collector
 
 ```bash
-dotnet run --project collector/src/Sgs.Collector --no-launch-profile
+dotnet run --project collector/src/Sgs.Collector
 ```
 
 然后打开 http://127.0.0.1:5080 。注意：
 
-- 加 `--no-launch-profile` 是因为 `Properties/launchSettings.json` 里的开发配置使用别的端口（5139），会覆盖 `Urls`。
 - 数据库里还没有任何收集记录时，**不会自动开始**，第一轮必须在管理界面点“开始收集”手动启动；之后按 `IntervalMinutes` 自动调度。
 - 首个完整轮约下载 1-2 GB、1.2-1.5 万个资源。
 
