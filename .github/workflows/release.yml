@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  collector:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [win-x64, linux-x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test collector/Sgs.Collector.slnx -c Release
+      - name: Publish
+        run: >
+          dotnet publish collector/src/Sgs.Collector/Sgs.Collector.csproj -c Release -r ${{ matrix.rid }}
+          --self-contained true -o out/sgs-collector
+      - name: Zip
+        run: |
+          cd out
+          zip -r ../sgs-collector-${{ github.ref_name }}-${{ matrix.rid }}.zip sgs-collector
+      - uses: actions/upload-artifact@v4
+        with:
+          name: collector-${{ matrix.rid }}
+          path: sgs-collector-*.zip
+
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Test and bundle
+        working-directory: worker
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npx wrangler deploy --dry-run --outdir dist
+      - name: Zip
+        run: |
+          mkdir -p pkg/sgs-worker
+          cd worker
+          cp -r dist src package.json package-lock.json tsconfig.json wrangler.jsonc worker-configuration.d.ts .dev.vars.example ../pkg/sgs-worker/
+          cd ..
+          cd pkg
+          zip -r ../sgs-worker-${{ github.ref_name }}.zip sgs-worker
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worker
+          path: sgs-worker-*.zip
+
+  release:
+    needs: [collector, worker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
