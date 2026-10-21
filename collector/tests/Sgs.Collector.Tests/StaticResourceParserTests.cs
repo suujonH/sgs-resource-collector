@@ -32,6 +32,23 @@ public sealed class StaticResourceParserTests
         Assert.Equal(["res/assets/x.png?v=123", "res/skel/hero.skel", "res/video/intro.mp4", "res/font/a.ttf"], paths);
     }
 
+    [Fact]
+    public void ScanStaticResourcePaths_FindsProtocolRelativeUrls()
+    {
+        var paths = Parser.ScanStaticResourcePaths("""a("//web.sanguosha.com/220/h5_2/res/a.png")""").ToArray();
+
+        Assert.Equal(["//web.sanguosha.com/220/h5_2/res/a.png"], paths);
+    }
+
+    [Fact]
+    public void TryDecodeText_StripsUtf8Bom()
+    {
+        byte[] bytes = [0xEF, 0xBB, 0xBF, (byte)'{', (byte)'}'];
+
+        Assert.True(Parser.TryDecodeText(bytes, out var text));
+        Assert.Equal("{}", text);
+    }
+
     [Theory]
     [InlineData("res/assets/a.png", "https://web.sanguosha.com/220/h5_2/res/assets/a.png")]
     [InlineData("sub/b.js", "https://web.sanguosha.com/220/h5_2/res/x/sub/b.js")]

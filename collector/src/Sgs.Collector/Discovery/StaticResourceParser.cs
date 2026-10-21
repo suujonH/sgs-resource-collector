@@ -10,7 +10,7 @@ public sealed class StaticResourceParser
     private const string Extensions = "js|sgs|json|jsonl|proto|xml|atlas|sk|skel|png|jpg|jpeg|webp|gif|svg|dds|ktx|mp3|ogg|mp4|webm|swf|part|txt|ttf|otf|woff|woff2";
 
     private static readonly Regex StaticPathRegex = new(
-        "(?<quote>['\"])(?<path>(?:https?://[^'\"\\s]+?\\.(?:" + Extensions + ")(?:\\?[^'\"]*)?|(?:\\.\\./|\\./)?(?:res|libs|version|sgsCensus)/[^'\"]+?\\.(?:" + Extensions + ")(?:\\?[^'\"]*)?|sgsGame[^'\"\\s]*?\\.sgs(?:\\?[^'\"]*)?))(\\k<quote>)",
+        "(?<quote>['\"])(?<path>(?:(?:https?:)?//[^'\"\\s]+?\\.(?:" + Extensions + ")(?:\\?[^'\"]*)?|(?:\\.\\./|\\./)?(?:res|libs|version|sgsCensus)/[^'\"]+?\\.(?:" + Extensions + ")(?:\\?[^'\"]*)?|sgsGame[^'\"\\s]*?\\.sgs(?:\\?[^'\"]*)?))(\\k<quote>)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly Uri _entryUrl;
@@ -209,6 +209,11 @@ public sealed class StaticResourceParser
         try
         {
             text = _strictUtf8.GetString(bytes);
+            // 去掉 UTF-8 BOM，否则 JsonDocument.Parse 会拒绝
+            if (text.Length > 0 && text[0] == '﻿')
+            {
+                text = text[1..];
+            }
             return true;
         }
         catch (DecoderFallbackException)
