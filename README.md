@@ -19,7 +19,7 @@
 
 ```
 collector/
-  Sgs.Collector.slnx
+  Sgs.Collector.slnx  Dockerfile
   src/Sgs.Collector/     收集程序（appsettings.json、Options、Data、Http、Discovery、Decode、Crawl、Sync ...）
   tests/Sgs.Collector.Tests/
 worker/
@@ -183,7 +183,7 @@ dotnet run --project collector/src/Sgs.Collector
    ```bash
    rm collector/src/Sgs.Collector/App_Data/collector.db*
    ```
-   （发布包中则是程序目录下的 `App_Data/collector.db*`。）
+   （发布包中则是程序目录下的 `App_Data/collector.db*`；Docker 中见下文“Docker 运行 Collector”。）
 3. 启动 Collector。
 4. 在管理界面点“从 Worker 恢复”（仅在本地没有收集产生的版本时可用）。
 5. 恢复完成后再点“开始收集”。恢复后的首轮会完整下载一遍，大部分条目显示“内容未变”。
@@ -198,10 +198,30 @@ dotnet run --project collector/src/Sgs.Collector
 - `sgs-collector-<tag>-linux-x64.zip`（以上两个均为 self-contained，无需安装 .NET）
 - `sgs-worker-<tag>.zip`（Worker 源码、`wrangler.jsonc` 与 dry-run 打包产物 `dist`）
 
+同时把 Collector 的 Docker 镜像（linux/amd64、linux/arm64）推送到 `ghcr.io/suujonh/sgs-resource-collector`，标签为 `<版本>`（如 `1.0.0`）、`<主版本>.<次版本>`、`<tag>` 和 `latest`。
+
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
+
+## Docker 运行 Collector
+
+```bash
+docker run -d --name sgs-collector --restart unless-stopped --stop-timeout 30 \
+  -p 127.0.0.1:5080:5080 \
+  -v sgs-collector-data:/data \
+  -e Worker__BaseUrl=https://<你的域名> \
+  -e Worker__SyncToken=<同步密钥> \
+  ghcr.io/suujonh/sgs-resource-collector:latest
+```
+
+- 管理界面仍为 http://127.0.0.1:5080 。容器内监听 `0.0.0.0:5080`，所以端口映射务必写成 `127.0.0.1:5080:5080`，不要暴露到局域网或公网（管理界面无登录）。用其它主机名访问时，还需设置 `-e AllowedHosts=<主机名>`。
+- 数据目录为容器内的 `/data`（数据库 `/data/collector.db`），请挂载卷保存。容器以非 root 用户（UID 1654）运行，挂载宿主机目录时需保证该用户可写。
+- 其它配置项同样用环境变量设置，`:` 写成 `__`，如 `-e Collector__IntervalMinutes=720`；也可把 `appsettings.Local.json` 挂载到 `/app/appsettings.Local.json`。
+- `--stop-timeout 30`：停止容器时程序会终止当前轮次并写完数据库，留出足够时间，避免被强制结束。
+- 本地数据库丢失后的恢复：停止容器，删除卷中的 `collector.db*`（或换一个新卷）后启动，再按上文步骤恢复。
+- 本地构建镜像：`docker build -t sgs-collector collector`。
 
 ## 注意事项
 
